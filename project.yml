@@ -1,0 +1,27 @@
+name: DeskDock
+options:
+  bundleIdPrefix: com.atiksh
+  createIntermediateGroups: true
+targets:
+  DeskDock:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - DeskDock
+    info:
+      path: DeskDock/Info.plist
+      properties:
+        CFBundleDisplayName: DeskDock
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.atiksh.deskdock
+        SWIFT_VERSION: "5.9"
+        TARGETED_DEVICE_FAMILY: "1"

@@ -1,0 +1,43 @@
+name: Build unsigned IPA
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build (unsigned)
+        run: >
+          xcodebuild
+          -project DeskDock.xcodeproj
+          -target DeskDock
+          -configuration Release
+          -sdk iphoneos
+          build
+          SYMROOT="$PWD/build"
+          CODE_SIGNING_ALLOWED=NO
+          CODE_SIGNING_REQUIRED=NO
+          CODE_SIGN_IDENTITY=""
+
+      - name: Package IPA
+        run: |
+          mkdir -p Payload
+          cp -r "build/Release-iphoneos/DeskDock.app" Payload/
+          zip -qry DeskDock.ipa Payload
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DeskDock-ipa
+          path: DeskDock.ipa
