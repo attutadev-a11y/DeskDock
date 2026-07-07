@@ -24,12 +24,13 @@ final class TrackpadViewController: UIViewController, UITextFieldDelegate {
     private let appBar = UIStackView()
     private let keyBar = UIView()
     private let keyIcon = UILabel()
-    private let keyField = UITextField()
+    private let keyField = KeyCaptureField()
     private let trackpad = UIView()
     private let hintLabel = UILabel()
     private let haptic = UIImpactFeedbackGenerator(style: .medium)
     private var lastPressPoint = CGPoint.zero
-    private let sentinel = "\u{200B}" // zero-width space so backspace is detectable
+    private var keyboardOverlap: CGFloat = 0
+    private let sentinel = "\u{200B}" // zero-width space keeps the field non-empty
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -71,8 +72,9 @@ final class TrackpadViewController: UIViewController, UITextFieldDelegate {
         keyField.smartInsertDeleteType = .no
         keyField.spellCheckingType = .no
         keyField.returnKeyType = .default
+        keyField.onDeleteBackward = { Desk.shared.desktop?.deleteBackward() }
         let keyHint = UILabel()
-        keyHint.text = "Tap here, then type — keys go to the monitor"
+        keyHint.text = "Tap: keyboard on/off — keys go to the monitor"
         keyHint.font = .systemFont(ofSize: 13)
         keyHint.textColor = UIColor(white: 0.6, alpha: 1)
         keyHint.tag = 99
@@ -109,6 +111,11 @@ final class TrackpadViewController: UIViewController, UITextFieldDelegate {
         press.minimumPressDuration = 0.3
         trackpad.addGestureRecognizer(press)
 
+        NotificationCenter.default.addObserver(self, selector: #selector(keyboardFrameChanged(_:)),
+                                               name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(keyboardHidden(_:)),
+                                               name: UIResponder.keyboardWillHideNotification, object: nil)
+
         refreshConnectionState()
     }
 
@@ -129,10 +136,30 @@ final class TrackpadViewController: UIViewController, UITextFieldDelegate {
         keyField.frame = CGRect(x: 44, y: 0, width: 10, height: 44)
         keyBar.viewWithTag(99)?.frame = CGRect(x: 44, y: 0, width: keyBar.bounds.width - 56, height: 44)
         let padTop = keyBar.frame.maxY + 12
+        let bottomInset = max(safe.bottom, keyboardOverlap)
         trackpad.frame = CGRect(x: 16, y: padTop, width: w,
-                                height: view.bounds.height - padTop - safe.bottom - 12)
+                                height: max(80, view.bounds.height - padTop - bottomInset - 12))
         hintLabel.frame = CGRect(x: 8, y: trackpad.bounds.height - 52,
                                  width: trackpad.bounds.width - 16, height: 44)
+    }
+
+    // Shrink the trackpad above the keyboard so it never covers the touch area.
+    @objc private func keyboardFrameChanged(_ note: Notification) {
+        guard let info = note.userInfo,
+              let frameValue = info[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue else { return }
+        // Two scenes share this process — only react to the phone's own keyboard.
+        let isLocal = (info[UIResponder.keyboardIsLocalUserInfoKey] as? Bool) ?? true
+        guard isLocal, view.window != nil else { return }
+        let inView = view.convert(frameValue.cgRectValue, from: nil)
+        keyboardOverlap = max(0, view.bounds.maxY - inView.minY)
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+    }
+
+    @objc private func keyboardHidden(_ note: Notification) {
+        keyboardOverlap = 0
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
     }
 
     func refreshConnectionState() {
@@ -185,7 +212,11 @@ final class TrackpadViewController: UIViewController, UITextFieldDelegate {
     // MARK: - Keyboard forwarding
 
     @objc private func focusKeyboard() {
-        keyField.becomeFirstResponder()
+        if keyField.isFirstResponder {
+            keyField.resignFirstResponder()
+        } else {
+            keyField.becomeFirstResponder()
+        }
     }
 
     @objc private func openApp(_ sender: UIButton) {
@@ -196,9 +227,8 @@ final class TrackpadViewController: UIViewController, UITextFieldDelegate {
     func textField(_ textField: UITextField,
                    shouldChangeCharactersIn range: NSRange,
                    replacementString string: String) -> Bool {
-        if string.isEmpty {
-            Desk.shared.desktop?.deleteBackward()
-        } else {
+        // Backspace arrives via KeyCaptureField.deleteBackward, not here.
+        if !string.isEmpty {
             Desk.shared.desktop?.insertText(string)
         }
         textField.text = sentinel
@@ -208,5 +238,20 @@ final class TrackpadViewController: UIViewController, UITextFieldDelegate {
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
         Desk.shared.desktop?.insertText("\n")
         return false
+    }
+}
+
+/// Text field that reports backspace directly. The keyboard calls
+/// deleteBackward() regardless of caret position or field content, so this
+/// catches every backspace — unlike the delegate, which UIKit skips when
+/// there is nothing before the caret to delete.
+final class KeyCaptureField: UITextField {
+    var onDeleteBackward: (() -> Void)?
+
+    override func deleteBackward() {
+        onDeleteBackward?()
+        // Deliberately NOT calling super: the field's own text is a dummy
+        // sentinel, and letting UIKit delete it would fire a second event
+        // through the delegate path.
     }
 }

@@ -178,6 +178,7 @@ final class DesktopViewController: UIViewController {
             windows.append(windows.remove(at: idx))
         }
         view.bringSubviewToFront(win)
+        view.bringSubviewToFront(taskbar)
         view.bringSubviewToFront(cursor)
     }
 
@@ -199,7 +200,7 @@ final class DesktopViewController: UIViewController {
             markFocused(field)
             return
         }
-        if let textView = ancestor(of: hit, as: UITextView.self) {
+        if let textView = ancestor(of: hit, as: UITextView.self), textView.isEditable {
             focusedText = textView
             let local = view.convert(cursorPos, to: textView)
             if let pos = textView.closestPosition(to: local) {
@@ -210,6 +211,8 @@ final class DesktopViewController: UIViewController {
             return
         }
         if let web = ancestor(of: hit, as: WKWebView.self) {
+            focusRing?.layer.borderColor = UIColor.clear.cgColor
+            focusRing = nil
             focusedText = web
             let local = view.convert(cursorPos, to: web)
             web.evaluateJavaScript(Self.clickScript(x: local.x, y: local.y), completionHandler: nil)
@@ -221,7 +224,7 @@ final class DesktopViewController: UIViewController {
         }
     }
 
-    private var focusRing: UIView?
+    private weak var focusRing: UIView?
     private func markFocused(_ v: UIView) {
         focusRing?.layer.borderColor = UIColor.clear.cgColor
         v.layer.borderWidth = 1.5
@@ -255,7 +258,8 @@ final class DesktopViewController: UIViewController {
             win.frame.origin = origin
         case .resize(let win):
             let w = max(DeskWindow.minSize.width, cursorPos.x - win.frame.minX + 10)
-            let h = max(DeskWindow.minSize.height, cursorPos.y - win.frame.minY + 10)
+            let maxH = view.bounds.height - taskbarHeight - win.frame.minY
+            let h = max(DeskWindow.minSize.height, min(cursorPos.y - win.frame.minY + 10, maxH))
             win.frame.size = CGSize(width: w, height: h)
             win.setNeedsLayout()
         }
@@ -299,12 +303,16 @@ final class DesktopViewController: UIViewController {
 
     func deleteBackward() {
         if let tv = focusedText as? UITextView {
-            let sel = tv.selectedRange
+            let ns = tv.textStorage.string as NSString
+            var sel = tv.selectedRange
+            sel.location = min(sel.location, ns.length)
+            sel.length = min(sel.length, ns.length - sel.location)
             if sel.length > 0 {
                 tv.textStorage.replaceCharacters(in: sel, with: "")
                 tv.selectedRange = NSRange(location: sel.location, length: 0)
             } else if sel.location > 0 {
-                let r = NSRange(location: sel.location - 1, length: 1)
+                // Delete a whole composed character (emoji are 2+ UTF-16 units).
+                let r = ns.rangeOfComposedCharacterSequence(at: sel.location - 1)
                 tv.textStorage.replaceCharacters(in: r, with: "")
                 tv.selectedRange = NSRange(location: r.location, length: 0)
             }
@@ -316,7 +324,7 @@ final class DesktopViewController: UIViewController {
             }
         } else if let web = focusedText as? WKWebView {
             let js = "(function(){var el=document.activeElement;" +
-                     "if(el&&typeof el.value==='string'){el.value=el.value.slice(0,-1);" +
+                     "if(el&&typeof el.value==='string'){el.value=Array.from(el.value).slice(0,-1).join('');" +
                      "el.dispatchEvent(new Event('input',{bubbles:true}));}})()"
             web.evaluateJavaScript(js, completionHandler: nil)
         }

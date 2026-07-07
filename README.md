@@ -51,7 +51,7 @@ Free Apple ID limits: max **3 sideloaded apps**, **7-day** signing (AltStore aut
 | Tap | Click |
 | Long-press, then drag | Move a window (grab anywhere) / resize (grab the ◢ corner) |
 | 2-finger drag | Scroll |
-| Tap the ⌨️ bar | Opens the keyboard — everything you type goes to whatever you last clicked on the monitor |
+| Tap the ⌨️ bar | Toggles the keyboard on/off — everything you type goes to whatever you last clicked on the monitor |
 
 A Bluetooth keyboard paired to the iPhone also works — tap the ⌨️ bar once and type away.
 
@@ -61,7 +61,7 @@ A Bluetooth keyboard paired to the iPhone also works — tap the ⌨️ bar once
 
 - Typing into web pages is basic (works for simple inputs; complex web editors won't). The URL bar always works.
 - No text selection/copy-paste on the desktop yet.
-- JavaScript only in the Code app for now (Python would require embedding CPython — doable later).
+- JavaScript only in the Code app for now (Python would require embedding CPython — doable later). Scripts are killed after 5 seconds so an infinite loop can't hang the app.
 
 ## Project layout
 

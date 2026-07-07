@@ -107,31 +107,56 @@ final class CodeEditorView: UIView, UITextViewDelegate {
         console.text = ""
     }
 
+    private let jsQueue = DispatchQueue(label: "com.atiksh.deskdock.jsrunner")
+
     @objc private func run() {
         console.text = ""
-        guard let context = JSContext() else {
-            appendConsole("⚠️ Could not create a JavaScript context")
-            return
+        runButton.isEnabled = false
+        runButton.alpha = 0.5
+        let source: String = editor.text ?? ""
+        // Run off the main thread so a slow script can't freeze the desktop
+        // and trackpad scenes (both are serviced by the main run loop).
+        jsQueue.async { [weak self] in
+            guard let context = JSContext() else {
+                DispatchQueue.main.async {
+                    self?.appendConsole("⚠️ Could not create a JavaScript context")
+                    self?.finishRun()
+                }
+                return
+            }
+            context.exceptionHandler = { _, exception in
+                let msg = exception?.toString() ?? "unknown error"
+                DispatchQueue.main.async { self?.appendConsole("⚠️ " + msg) }
+            }
+            let log: @convention(block) (String) -> Void = { msg in
+                DispatchQueue.main.async { self?.appendConsole(msg) }
+            }
+            context.setObject(log, forKeyedSubscript: "__nativeLog" as NSString)
+            context.evaluateScript("""
+                var console = { log: function() {
+                    __nativeLog(Array.prototype.map.call(arguments, String).join(' '));
+                }};
+                console.error = console.warn = console.info = console.log;
+                var print = console.log;
+                """)
+            // Kill runaway scripts (e.g. while(true){}) after 5 seconds.
+            JSContextGroupSetExecutionTimeLimit(JSContextGetGroup(context.jsGlobalContextRef),
+                                                5.0, { _, _ in true }, nil)
+            let result = context.evaluateScript(source)
+            var tail: String?
+            if let r = result, !r.isUndefined, !r.isNull {
+                tail = r.toString()
+            }
+            DispatchQueue.main.async {
+                if let t = tail { self?.appendConsole("→ " + t) }
+                self?.finishRun()
+            }
         }
-        let log: @convention(block) (String) -> Void = { [weak self] msg in
-            self?.appendConsole(msg)
-        }
-        context.setObject(log, forKeyedSubscript: "__nativeLog" as NSString)
-        context.evaluateScript("""
-            var console = { log: function() {
-                __nativeLog(Array.prototype.map.call(arguments, String).join(' '));
-            }};
-            console.error = console.warn = console.info = console.log;
-            var print = console.log;
-            """)
-        context.exceptionHandler = { [weak self] _, exception in
-            let msg = exception?.toString() ?? "unknown error"
-            self?.appendConsole("⚠️ " + msg)
-        }
-        let result = context.evaluateScript(editor.text)
-        if let r = result, !r.isUndefined, !r.isNull {
-            appendConsole("→ " + (r.toString() ?? ""))
-        }
+    }
+
+    private func finishRun() {
+        runButton.isEnabled = true
+        runButton.alpha = 1
         if console.text.isEmpty {
             appendConsole("(finished — no output)")
         }
