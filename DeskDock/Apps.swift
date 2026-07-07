@@ -1,6 +1,21 @@
 import UIKit
 import WebKit
 import JavaScriptCore
+import Darwin
+
+// JSContextGroupSetExecutionTimeLimit is exported by JavaScriptCore but
+// declared only in a private header, so it isn't visible to Swift. Bind the
+// symbol at runtime; if it ever disappears, scripts just run without a limit.
+private typealias JSSetTimeLimit = @convention(c) (
+    OpaquePointer?, Double,
+    (@convention(c) (OpaquePointer?, UnsafeMutableRawPointer?) -> Bool)?,
+    UnsafeMutableRawPointer?
+) -> Void
+
+private let jsSetTimeLimit: JSSetTimeLimit? = {
+    guard let sym = dlsym(dlopen(nil, RTLD_NOW), "JSContextGroupSetExecutionTimeLimit") else { return nil }
+    return unsafeBitCast(sym, to: JSSetTimeLimit.self)
+}()
 
 // MARK: - Code editor with a JavaScript runner
 
@@ -140,8 +155,8 @@ final class CodeEditorView: UIView, UITextViewDelegate {
                 var print = console.log;
                 """)
             // Kill runaway scripts (e.g. while(true){}) after 5 seconds.
-            JSContextGroupSetExecutionTimeLimit(JSContextGetGroup(context.jsGlobalContextRef),
-                                                5.0, { _, _ in true }, nil)
+            jsSetTimeLimit?(JSContextGetGroup(context.jsGlobalContextRef),
+                            5.0, { _, _ in true }, nil)
             let result = context.evaluateScript(source)
             var tail: String?
             if let r = result, !r.isUndefined, !r.isNull {
